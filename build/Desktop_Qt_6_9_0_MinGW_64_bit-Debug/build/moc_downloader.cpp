@@ -42,7 +42,11 @@ template <> constexpr inline auto Downloader::qt_create_metaobjectdata<qt_meta_t
         "downloadFinished",
         "",
         "success",
-        "startDownload"
+        "downloadPaused",
+        "downloadResumed",
+        "startDownload",
+        "pauseDownload",
+        "resumeDownload"
     };
 
     QtMocHelpers::UintData qt_methods {
@@ -50,8 +54,16 @@ template <> constexpr inline auto Downloader::qt_create_metaobjectdata<qt_meta_t
         QtMocHelpers::SignalData<void(bool)>(1, 2, QMC::AccessPublic, QMetaType::Void, {{
             { QMetaType::Bool, 3 },
         }}),
+        // Signal 'downloadPaused'
+        QtMocHelpers::SignalData<void()>(4, 2, QMC::AccessPublic, QMetaType::Void),
+        // Signal 'downloadResumed'
+        QtMocHelpers::SignalData<void()>(5, 2, QMC::AccessPublic, QMetaType::Void),
         // Slot 'startDownload'
-        QtMocHelpers::SlotData<void()>(4, 2, QMC::AccessPublic, QMetaType::Void),
+        QtMocHelpers::SlotData<void()>(6, 2, QMC::AccessPublic, QMetaType::Void),
+        // Slot 'pauseDownload'
+        QtMocHelpers::SlotData<void()>(7, 2, QMC::AccessPublic, QMetaType::Void),
+        // Slot 'resumeDownload'
+        QtMocHelpers::SlotData<void()>(8, 2, QMC::AccessPublic, QMetaType::Void),
     };
     QtMocHelpers::UintData qt_properties {
     };
@@ -76,12 +88,20 @@ void Downloader::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, 
     if (_c == QMetaObject::InvokeMetaMethod) {
         switch (_id) {
         case 0: _t->downloadFinished((*reinterpret_cast< std::add_pointer_t<bool>>(_a[1]))); break;
-        case 1: _t->startDownload(); break;
+        case 1: _t->downloadPaused(); break;
+        case 2: _t->downloadResumed(); break;
+        case 3: _t->startDownload(); break;
+        case 4: _t->pauseDownload(); break;
+        case 5: _t->resumeDownload(); break;
         default: ;
         }
     }
     if (_c == QMetaObject::IndexOfMethod) {
         if (QtMocHelpers::indexOfMethod<void (Downloader::*)(bool )>(_a, &Downloader::downloadFinished, 0))
+            return;
+        if (QtMocHelpers::indexOfMethod<void (Downloader::*)()>(_a, &Downloader::downloadPaused, 1))
+            return;
+        if (QtMocHelpers::indexOfMethod<void (Downloader::*)()>(_a, &Downloader::downloadResumed, 2))
             return;
     }
 }
@@ -105,14 +125,14 @@ int Downloader::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 2)
+        if (_id < 6)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 2;
+        _id -= 6;
     }
     if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 2)
+        if (_id < 6)
             *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
-        _id -= 2;
+        _id -= 6;
     }
     return _id;
 }
@@ -121,5 +141,17 @@ int Downloader::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
 void Downloader::downloadFinished(bool _t1)
 {
     QMetaObject::activate<void>(this, &staticMetaObject, 0, nullptr, _t1);
+}
+
+// SIGNAL 1
+void Downloader::downloadPaused()
+{
+    QMetaObject::activate(this, &staticMetaObject, 1, nullptr);
+}
+
+// SIGNAL 2
+void Downloader::downloadResumed()
+{
+    QMetaObject::activate(this, &staticMetaObject, 2, nullptr);
 }
 QT_WARNING_POP
