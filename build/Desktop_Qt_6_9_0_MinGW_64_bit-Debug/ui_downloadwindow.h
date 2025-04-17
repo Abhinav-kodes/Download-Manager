@@ -14,6 +14,7 @@
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLineEdit>
+#include <QtWidgets/QProgressBar>
 #include <QtWidgets/QPushButton>
 
 QT_BEGIN_NAMESPACE
@@ -24,6 +25,7 @@ public:
     QLineEdit *urlLineEdit;
     QPushButton *downloadButton;
     QLabel *label;
+    QProgressBar *progressBar;
 
     void setupUi(QDialog *DownloadWindow)
     {
@@ -39,6 +41,10 @@ public:
         label = new QLabel(DownloadWindow);
         label->setObjectName("label");
         label->setGeometry(QRect(80, 10, 63, 20));
+        progressBar = new QProgressBar(DownloadWindow);
+        progressBar->setObjectName("progressBar");
+        progressBar->setGeometry(QRect(70, 140, 118, 23));
+        progressBar->setValue(24);
 
         retranslateUi(DownloadWindow);
 
