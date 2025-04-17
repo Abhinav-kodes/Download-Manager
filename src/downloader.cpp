@@ -6,9 +6,6 @@
 #include <chrono>
 #include <QCoreApplication>
 
-// Global handle for access in callbacks
-CURL* g_curl = nullptr;
-
 // WriteCallback function to write data to file
 size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     auto* data = static_cast<std::pair<std::ofstream*, std::atomic<bool>*>*>(userp);
@@ -16,7 +13,7 @@ size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     std::atomic<bool>* paused = data->second;
     
     // Check if download is paused before writing
-    if (paused && paused->load() && g_curl) {
+    if (paused && paused->load()) {
         std::cout << "WriteCallback detected pause, returning CURL_WRITEFUNC_PAUSE" << std::endl;
         return CURL_WRITEFUNC_PAUSE; // This will pause the transfer
     }
@@ -48,9 +45,8 @@ static int progressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow,
     }
     
     // Check if download is paused
-    if (paused && paused->load() && g_curl) {
+    if (paused && paused->load()) {
         std::cout << "ProgressCallback detected pause" << std::endl;
-        curl_easy_pause(g_curl, CURLPAUSE_ALL);
         return 1; // Return non-zero to abort current transfer
     }
     
@@ -64,7 +60,18 @@ static int progressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow,
 }
 
 Downloader::Downloader(const std::string& url, const std::string& outputPath, std::function<void(int)> onProgress)
-    : url(url), outputPath(outputPath), onProgress(onProgress), resumePosition(0), totalFileSize(0), running(false), paused(false) {
+    : QObject(nullptr), // Recommended to explicitly initialize base class if default is not desired
+      url(url),
+      outputPath(outputPath),
+      onProgress(onProgress),
+      paused(false),         // Explicitly initialize atomics
+      running(false),        // Explicitly initialize atomics
+      resumePosition(0),
+      // mutex is default initialized
+      totalFileSize(0),
+      m_curlHandle(nullptr) // Initialize the new member
+{
+    // Constructor body remains empty or add other setup if needed
 }
 
 // Constructor for the Downloader class
@@ -104,7 +111,7 @@ bool Downloader::downloadFile(const std::string& url, const std::string& outputP
     curl = curl_easy_init();
 
     // Store in global variable for access from callbacks
-    g_curl = curl;
+    m_curlHandle = curl;
 
     if (!curl) {
         std::cerr << "Failed to initialize cURL." << std::endl;
@@ -188,7 +195,7 @@ bool Downloader::downloadFile(const std::string& url, const std::string& outputP
     long http_code = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
 
-    g_curl = nullptr;
+    m_curlHandle = nullptr;
 
     curl_easy_cleanup(curl);
     curl_global_cleanup();
@@ -249,9 +256,9 @@ void Downloader::pauseDownload() {
         paused.store(true);
         
         // If we have a valid curl handle, try to pause it directly
-        if (g_curl) {
+        if (m_curlHandle){
             std::cout << "Calling curl_easy_pause() directly from pauseDownload()" << std::endl;
-            curl_easy_pause(g_curl, CURLPAUSE_ALL);
+            curl_easy_pause(m_curlHandle, CURLPAUSE_ALL);
         }
         
         emit downloadPaused();
