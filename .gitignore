@@ -1,32 +1,14 @@
-# Prerequisites
-*.d
+# Build directories
+build/
+**/build-*/
+**/Desktop_Qt_*/
 
-# Compiled Object files
-*.slo
-*.lo
+# Other common ignores for Qt/C++ projects
 *.o
 *.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Compiled Dynamic libraries
+*.dll
+*.exe
+*.app
 *.so
 *.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
+*.user

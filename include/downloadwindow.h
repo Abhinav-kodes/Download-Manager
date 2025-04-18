@@ -1,6 +1,8 @@
 #ifndef DOWNLOADWINDOW_H
 #define DOWNLOADWINDOW_H
 #include <QDialog>
+#include <QThread>
+#include "downloader.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class DownloadWindow; }
@@ -14,8 +16,18 @@ public:
 
 private slots:
     void onDownloadClicked();
+    void onPauseResumeClicked();
+    void onDownloadComplete(bool success);
+    void onDownloadPaused();
+    void onDownloadResumed();
+    void updateUI(); // New slot to update UI periodically
 
 private:
     Ui::DownloadWindow *ui;
+    QThread* downloadThread;
+    Downloader* downloader;
+    bool isDownloading;
+    
+    void updateButtonStates();
 };
 #endif // DOWNLOADWINDOW_H
