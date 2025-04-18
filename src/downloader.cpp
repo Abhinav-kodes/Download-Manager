@@ -2,12 +2,11 @@
 #include <curl/curl.h>
 #include <fstream>
 #include <iostream>
-#include <thread>
-#include <chrono>
 #include <QCoreApplication>
 #include <functional>
 #include <QDir>
 #include <string>
+#include <QFileInfo> // Added missing include for QFileInfo
 
 struct CurlCallbackContext {
     std::ofstream* fileStream = nullptr;            // Pointer to the output file stream
@@ -38,6 +37,10 @@ size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
 // Progress callback function to update the download progress
 static int progressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow,
     curl_off_t ultotal, curl_off_t ulnow) {
+    // Mark unused parameters to suppress compiler warnings
+    Q_UNUSED(ultotal);
+    Q_UNUSED(ulnow);
+
     // Cast clientp to the context struct pointer type
     auto* context = static_cast<CurlCallbackContext*>(clientp);
 
@@ -50,7 +53,7 @@ static int progressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow,
     std::function<void(int)>* progressFunc = context->progressFn;
     curl_off_t resumePosition = context->resumeOffset; // Use value from context
     std::atomic<bool>* paused = context->pausedFlag;   // Use pointer from context
-    
+
      // Update progress, accounting for already downloaded bytes
      if (progressFunc && dltotal > 0) {
         curl_off_t effectiveTotal = dltotal + resumePosition;
@@ -66,20 +69,20 @@ static int progressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow,
         // Call the progress function via the pointer stored in the context
         (*progressFunc)(percent);
     }
-    
+
     // Check if download is paused
     if (paused->load()) { // Access paused flag via context pointer
         std::cout << "ProgressCallback detected pause" << std::endl;
         // DO NOT call curl_easy_pause here - just return non-zero
         return 1; // Return non-zero to abort current transfer
     }
-    
+
     // Let the Qt event loop process events occasionally to keep UI responsive
     static int counter = 0;
     if (++counter % 10 == 0) { // Process events every 10 callbacks
         QCoreApplication::processEvents();
     }
-    
+
     return 0; // Continue download
 }
 

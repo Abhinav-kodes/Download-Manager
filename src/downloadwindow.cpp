@@ -228,17 +228,29 @@ void DownloadWindow::onPauseResumeClicked() {
         // ui->pauseResumeButton->setEnabled(true); // Let updateButtonStates handle enabling
     }
     // Update button states immediately based on the requested action
-    updateButtonStates();
+    // updateButtonStates(); // Removed this immediate call
 }
 
 void DownloadWindow::onDownloadComplete(bool success) {
+    // Check if the 'failure' was actually due to a pause request
+    // Ensure downloader pointer is valid before checking isPaused
+    if (!success && downloader && downloader->isPaused()) {
+        // This wasn't a real failure, it was a pause stopping the transfer.
+        // The UI should already be reflecting the 'Paused' state (handled by onDownloadPaused).
+        // We should not set isDownloading to false or update button states here.
+        std::cout << "onDownloadComplete: Ignoring 'false' success because download is paused." << std::endl;
+        return; // Exit early, leave UI in paused state
+    }
+
+    // If it's a real completion (success or actual failure, not a pause)
     isDownloading = false;
-    updateButtonStates();
-    
+    updateButtonStates(); // Update UI to reflect the truly stopped state
+
     if (success) {
         QMessageBox::information(this, "Download Complete",
                                 "The file has been downloaded successfully.");
-    } else if (!downloader->isPaused()) {
+    } else {
+        // We already handled the pause case above, so this is a genuine failure.
         QMessageBox::critical(this, "Download Failed",
                              "There was an error downloading the file.");
     }
@@ -248,13 +260,13 @@ void DownloadWindow::onDownloadPaused() {
     // Use invokeMethod to ensure UI updates happen in the UI thread
     QMetaObject::invokeMethod(this, [this]() {
         std::cout << "Download paused, updating UI" << std::endl;
-        QMessageBox::information(this, "Download Paused", 
-                              "The download has been paused. Click Resume to continue.");
-        
-        // Update button states AFTER the message box is closed
+        // QMessageBox::information(this, "Download Paused",
+        //                       "The download has been paused. Click Resume to continue."); // Removed this line
+
+        // Update button states AFTER the message box is closed (or would have been)
         ui->pauseResumeButton->setText("Resume");
         ui->pauseResumeButton->setEnabled(true);
-        
+
         // Process events to ensure UI updates
         QCoreApplication::processEvents();
     }, Qt::QueuedConnection);
