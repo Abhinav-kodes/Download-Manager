@@ -6,6 +6,8 @@
 #include <chrono>
 #include <QCoreApplication>
 #include <functional>
+#include <QDir>
+#include <string>
 
 struct CurlCallbackContext {
     std::ofstream* fileStream = nullptr;            // Pointer to the output file stream
@@ -175,7 +177,9 @@ bool Downloader::downloadFile(const std::string& url, const std::string& outputP
 
     // --- Set other options ---
     // NOTE: Consider enabling SSL verification (1L) and providing CA info
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // SECURITY RISK!
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);  // Enable SSL certificate verification
+    // 2L checks that the Common Name or Subject Alternative Name in the cert matches the hostname.
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L); // Optional: for debugging
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"); // Or your app name
@@ -193,6 +197,27 @@ bool Downloader::downloadFile(const std::string& url, const std::string& outputP
     // --- Perform Download ---
     this->running.store(true); // Mark as running
 
+    // QString appDir = QCoreApplication::applicationDirPath();
+    //QString caCertPath = QDir(appDir).filePath("certs/cacert.pem");
+    //std::string caCertPathStd = caCertPath.toStdString();
+    std::string caCertPathStd = "E:/MY idm/Download-Manager/certs/cacert.pem";
+    std::cout << "Attempting to use CA certificate file (absolute path): "
+          << caCertPathStd << std::endl;
+    curl_easy_setopt(curl, CURLOPT_CAINFO, caCertPathStd.c_str());
+   /* QFileInfo caCertInfo(caCertPath);
+    if (!caCertInfo.exists() || !caCertInfo.isFile()) {
+        std::cerr << "ERROR: CA certificate file not found at expected path: "
+                << caCertPathStd << std::endl; // Changed from WARNING to ERROR
+        curl_easy_setopt(curl, CURLOPT_CAINFO, nullptr);
+        // Consider returning false here as verification will fail anyway
+        // return false;
+    } else {
+        // *** THIS IS THE IMPORTANT DEBUG LINE ***
+        std::cout << "Attempting to use CA certificate file: " << caCertPathStd << std::endl;
+        curl_easy_setopt(curl, CURLOPT_CAINFO, caCertPathStd.c_str());
+    }*/
+
+            
     res = curl_easy_perform(curl); // BLOCKING call
 
     this->running.store(false); // Mark as not running anymore
