@@ -33,18 +33,27 @@ DownloadWindow::DownloadWindow(QWidget *parent)
 
 DownloadWindow::~DownloadWindow()
 {
-    // Clean up if a download is in progress
+    // Request the thread to quit and wait for it to finish
     if (downloadThread && downloadThread->isRunning()) {
-        if (downloader) {
-            QMetaObject::invokeMethod(downloader, "pauseDownload", Qt::QueuedConnection);
-        }
-        downloadThread->quit();
-        downloadThread->wait(1000); // Wait with timeout
-        if (downloadThread->isRunning()) {
+        // Optionally, try to pause first if applicable and safe
+        // if (downloader) {
+        //     QMetaObject::invokeMethod(downloader, "pauseDownload", Qt::BlockingQueuedConnection); // Blocking might be needed here
+        // }
+        downloadThread->quit(); // Request event loop termination
+        if (!downloadThread->wait(3000)) { // Wait up to 3 seconds
+            // If wait times out, consider logging an error.
+            // Terminate is a last resort as it can lead to resource leaks.
+            std::cerr << "Warning: Download thread did not finish gracefully. Terminating." << std::endl;
             downloadThread->terminate();
+            downloadThread->wait(); // Wait after terminate
         }
+        // Do not manually delete downloader or downloadThread here.
+        // Rely on the deleteLater connections made in onDownloadClicked.
     }
-    delete ui;
+    // Note: downloader pointer might be dangling here if thread terminated forcefully.
+    // It's generally safer if the thread finishes cleanly.
+
+    delete ui; // Standard Qt practice for UI cleanup
 }
 
 void DownloadWindow::updateUI()
@@ -127,46 +136,69 @@ void DownloadWindow::onDownloadClicked() {
                                                  filter);
    
     if (output.isEmpty()) return; // User canceled
-   
+
     ui->progressBar->setValue(0);  // Reset progress
+
+    // --- Cleanup existing thread and downloader first ---
+    if (downloadThread) {
+        if (downloadThread->isRunning()) {
+            std::cout << "Cleaning up previous download thread..." << std::endl;
+            // Request stop/pause if downloader exists
+            if (downloader) {
+                 // Use BlockingQueuedConnection if you need to ensure pause happens before quit
+                 // QMetaObject::invokeMethod(downloader, "pauseDownload", Qt::BlockingQueuedConnection);
+                 // Or just rely on quit() stopping processing
+            }
+            downloadThread->quit();
+            if (!downloadThread->wait(1000)) { // Wait briefly
+                 std::cerr << "Warning: Previous download thread did not finish gracefully during cleanup." << std::endl;
+                 // Avoid terminate here if possible, let deleteLater handle it eventually
+            }
+            // The finished signal should trigger deleteLater for the old objects
+        } else {
+            // If thread wasn't running, maybe it finished but pointers weren't cleared?
+            // Or maybe deleteLater hasn't executed yet. It's usually safe to just null pointers.
+        }
+        // Clear pointers immediately after initiating cleanup
+        downloader = nullptr;
+        downloadThread = nullptr;
+    }
+    // --- End cleanup ---
 
     // Create a lambda to update the progress bar
     auto updateProgress = [this](int percent) {
         // Use invokeMethod with QueuedConnection to ensure UI updates happen in the UI thread
         QMetaObject::invokeMethod(this, [this, percent]() {
-            ui->progressBar->setValue(percent);
-            QCoreApplication::processEvents(); // Process events to keep UI responsive
+            // Check if the progress bar still exists (window might be closing)
+            if (ui && ui->progressBar) {
+                ui->progressBar->setValue(percent);
+            }
+            // Avoid explicit QCoreApplication::processEvents() here if possible,
+            // rely on the main event loop and the timer.
         }, Qt::QueuedConnection);
     };
 
-    // Clean up previous downloader if exists
-    if (downloadThread) {
-        if (downloadThread->isRunning()) {
-            if (downloader) {
-                QMetaObject::invokeMethod(downloader, "pauseDownload", Qt::QueuedConnection);
-            }
-            downloadThread->quit();
-            downloadThread->wait(1000);
-            if (downloadThread->isRunning()) {
-                downloadThread->terminate();
-            }
-        }
-        delete downloadThread;
-        downloadThread = nullptr;
-        downloader = nullptr;
-    }
-
-    // Create a new thread to handle the download
-    downloadThread = new QThread();
+    // Create a new thread with this window as parent
+    downloadThread = new QThread(this); // Set parent
     downloader = new Downloader(url.toStdString(), output.toStdString(), updateProgress);
     downloader->moveToThread(downloadThread);
 
+    // --- Connections ---
+    // Start download when thread starts
     connect(downloadThread, &QThread::started, downloader, &Downloader::startDownload);
-    connect(downloadThread, &QThread::finished, downloadThread, &QThread::deleteLater);
+
+    // Ensure downloader is deleted when thread finishes
+    connect(downloadThread, &QThread::finished, downloader, &QObject::deleteLater);
+
+    // Ensure thread deletes itself when finished
+    connect(downloadThread, &QThread::finished, downloadThread, &QObject::deleteLater);
+
+    // Connect downloader signals to window slots (ensure QueuedConnection for thread safety)
     connect(downloader, &Downloader::downloadFinished, this, &DownloadWindow::onDownloadComplete, Qt::QueuedConnection);
     connect(downloader, &Downloader::downloadPaused, this, &DownloadWindow::onDownloadPaused, Qt::QueuedConnection);
     connect(downloader, &Downloader::downloadResumed, this, &DownloadWindow::onDownloadResumed, Qt::QueuedConnection);
-    
+
+    // --- Start Download ---
     isDownloading = true;
     updateButtonStates();
     downloadThread->start();
