@@ -76,8 +76,10 @@ void DownloadWindow::updateUI()
 void DownloadWindow::updateButtonStates() {
     if (isDownloading) {
         ui->downloadButton->setEnabled(false);
-        ui->pauseResumeButton->setEnabled(true);
-        
+        // Enable pause/resume button only if downloader exists
+        ui->pauseResumeButton->setEnabled(downloader != nullptr);
+
+        // Check the actual state via isPaused()
         if (downloader && downloader->isPaused()) {
             ui->pauseResumeButton->setText("Resume");
         } else {
@@ -86,11 +88,8 @@ void DownloadWindow::updateButtonStates() {
     } else {
         ui->downloadButton->setEnabled(true);
         ui->pauseResumeButton->setEnabled(false);
-        ui->pauseResumeButton->setText("Pause");
+        ui->pauseResumeButton->setText("Pause"); // Reset text when not downloading
     }
-    
-    // Process events to ensure UI updates
-    QCoreApplication::processEvents();
 }
 
 void DownloadWindow::onDownloadClicked() {
@@ -207,24 +206,29 @@ void DownloadWindow::onDownloadClicked() {
 void DownloadWindow::onPauseResumeClicked() {
     std::cout << "Pause/Resume button clicked" << std::endl;
     if (!downloader) return;
-    
-    // Temporarily disable button until action completes
-    ui->pauseResumeButton->setEnabled(false);
-    
+
+    // Temporarily disable button until action completes or state updates
+    // ui->pauseResumeButton->setEnabled(false); // Let updateButtonStates handle this
+
     if (downloader->isPaused()) {
-        std::cout << "Calling resumeDownload" << std::endl;
-        // Use QueuedConnection to ensure the call happens in the downloader's thread
+        std::cout << "Calling resumeDownload via invokeMethod" << std::endl;
+        // Resume still needs invokeMethod as it might call downloadFile()
         QMetaObject::invokeMethod(downloader, "resumeDownload", Qt::QueuedConnection);
-        
-        // For resume, we can enable the button immediately as onDownloadResumed will handle UI updates
-        ui->pauseResumeButton->setText("Pause");
-        ui->pauseResumeButton->setEnabled(true);
+
+        // Optimistically update UI for resume, updateButtonStates will confirm
+        // ui->pauseResumeButton->setText("Pause");
+        // ui->pauseResumeButton->setEnabled(true); // Let updateButtonStates handle enabling
     } else {
-        std::cout << "Calling pauseDownload" << std::endl;
-        // Use QueuedConnection to ensure the call happens in the downloader's thread
-        QMetaObject::invokeMethod(downloader, "pauseDownload", Qt::QueuedConnection);
-        // Note: onDownloadPaused will handle button re-enabling after message box closes
+        std::cout << "Calling requestPause directly" << std::endl;
+        // Directly call the new method to set the atomic flag immediately
+        downloader->requestPause();
+
+        // Optimistically update UI for pause, updateButtonStates will confirm
+        // ui->pauseResumeButton->setText("Resume");
+        // ui->pauseResumeButton->setEnabled(true); // Let updateButtonStates handle enabling
     }
+    // Update button states immediately based on the requested action
+    updateButtonStates();
 }
 
 void DownloadWindow::onDownloadComplete(bool success) {

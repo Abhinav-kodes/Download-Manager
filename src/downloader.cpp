@@ -125,134 +125,124 @@ bool Downloader::downloadFile() { // Parameters removed
         std::cout << "Resuming download from position: " << this->resumePosition << std::endl;
     }
 
-    // NOTE: Getting total file size here might be better handled elsewhere or using HEAD request result
-    if (this->resumePosition > 0 && this->totalFileSize == 0) { // Use member variables
-        std::ifstream checkFile(this->outputPath, std::ios::binary | std::ios::ate); // Use this->outputPath
-        if (checkFile.good()) {
-            this->totalFileSize = std::max(this->totalFileSize, (curl_off_t)checkFile.tellg());
-        }
-    }
-
     curl = curl_easy_init(); // Initialize local handle
 
-    this->m_curlHandle = curl; // Assign to member variable
-
-    if (!curl) {
+    if (!curl) { // Check initialization result immediately
         std::cerr << "Failed to initialize cURL." << std::endl;
         file.close();
-        this->m_curlHandle = nullptr; // Ensure member is null on failure
+        // No need to set m_curlHandle as it was never assigned
         return false;
     }
 
+    this->m_curlHandle = curl; // Assign to member variable *after* successful init
+
     // --- Set Curl Options using Context Struct ---
+    CurlCallbackContext callbackContext; // Define context struct
+    callbackContext.fileStream = &file;
+    callbackContext.pausedFlag = &this->paused;
+    callbackContext.progressFn = &this->onProgress;
+    callbackContext.resumeOffset = this->resumePosition;
 
-    // Use member variable for URL
-    curl_easy_setopt(curl, CURLOPT_URL, this->url.c_str()); // Use this->url
+    curl_easy_setopt(curl, CURLOPT_URL, this->url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &callbackContext); // Pass context to write callback
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progressCallback);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &callbackContext); // Pass context to progress callback
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 
-    // ++ NEW: Create and populate the context struct ++
-    CurlCallbackContext callbackContext;
-    callbackContext.fileStream = &file;         // Address of local file stream
-    callbackContext.pausedFlag = &this->paused; // Address of member atomic bool
-    // Use member variable for onProgress
-    callbackContext.progressFn = &this->onProgress; // Use this->onProgress
-    callbackContext.resumeOffset = this->resumePosition; // Copy member resume position
-
-    // ++ NEW: Pass the context struct to both callbacks ++
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &callbackContext);
-    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &callbackContext); // Use same context
-
-    // Set resume position if needed (using value from context now)
     if (callbackContext.resumeOffset > 0) {
         curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE, callbackContext.resumeOffset);
     }
 
-    // Set progress function options
-    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progressCallback);
-    // CURLOPT_XFERINFODATA already set above
-
     // --- Set other options ---
-    // NOTE: Consider enabling SSL verification (1L) and providing CA info
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);  // Enable SSL certificate verification
-    // 2L checks that the Common Name or Subject Alternative Name in the cert matches the hostname.
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L); // Optional: for debugging
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"); // Or your app name
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
     curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 8192L);
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 3L);
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1000L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);
-    curl_easy_setopt(curl, CURLOPT_DNS_CACHE_TIMEOUT, 0L); // Consider removing if not needed
+    // curl_easy_setopt(curl, CURLOPT_DNS_CACHE_TIMEOUT, 0L); // Often default is fine
 
     char errbuf[CURL_ERROR_SIZE];
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errbuf);
     errbuf[0] = 0;
 
-    // --- Perform Download ---
-    this->running.store(true); // Mark as running
-
+    // --- Moved CA Certificate Handling Inside Function ---
     QString appDir = QCoreApplication::applicationDirPath();
     QString caCertPath = QDir(appDir).filePath("certs/cacert.pem");
     std::string caCertPathStd = caCertPath.toStdString();
-    //std::string caCertPathStd = "E:/MY idm/Download-Manager/certs/cacert.pem";
     std::cout << "Attempting to use CA certificate file (relative path resolved to): "
-          << caCertPathStd << std::endl;
+              << caCertPathStd << std::endl;
     QFileInfo caCertInfo(caCertPath);
     if (!caCertInfo.exists() || !caCertInfo.isFile()) {
         std::cerr << "ERROR: CA certificate file not found at expected path: "
-                << caCertPathStd << std::endl;
+                  << caCertPathStd << std::endl;
         std::cerr << "Please ensure 'certs/cacert.pem' exists relative to the executable." << std::endl;
         // Clean up before returning failure
         file.close();
         curl_easy_cleanup(curl);
         this->m_curlHandle = nullptr;
-        this->running.store(false);
+        // No need to set running flag here as download hasn't started
         return false; // Fail the download explicitly if CA bundle is missing
     } else {
         curl_easy_setopt(curl, CURLOPT_CAINFO, caCertPathStd.c_str());
     }
-
+    // --- End Moved CA Handling ---
+    // --- Perform Download ---
+    running.store(true); // Mark as running before starting
     res = curl_easy_perform(curl); // BLOCKING call
-
-    this->running.store(false); // Mark as not running anymore
+    running.store(false); // Mark as not running after completion or failure
 
     // --- Process Results ---
+    // Get actual downloaded size for this specific transfer attempt
     curl_off_t downloadedSize = 0;
     curl_easy_getinfo(curl, CURLINFO_SIZE_DOWNLOAD_T, &downloadedSize);
 
-    if (downloadedSize > 0) {
-        this->resumePosition += downloadedSize; // Update member variable
-        std::cout << "Downloaded size in this transfer: " << downloadedSize << ", new resume position: " << this->resumePosition << std::endl;
-    }
-
-    // Update total file size after download
-    curl_off_t dlTotal = 0;
-    curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &dlTotal);
-    if (dlTotal > 0) {
-        this->totalFileSize = this->resumePosition + dlTotal; // Update member variable
-    }
-
+    // Get final HTTP response code
     long http_code = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
 
     // --- Cleanup ---
-    this->m_curlHandle = nullptr; // Clear member handle pointer
+    this->m_curlHandle = nullptr; // Clear member handle pointer *before* cleanup
     curl_easy_cleanup(curl); // Clean up the local easy handle
-    file.close();
+    file.close(); // Close the file stream
 
     // --- Determine Return Status ---
+
     // Check if paused based on flag AND specific return codes from callbacks
     if (this->paused.load() &&
         (res == CURLE_WRITE_ERROR || res == CURLE_ABORTED_BY_CALLBACK)) {
+         // Update resume position based on file size *after* pause detected
+         std::ifstream checkFile(this->outputPath, std::ios::binary | std::ios::ate);
+         if (checkFile.good()) {
+             this->resumePosition = checkFile.tellg();
+         } else {
+             // Fallback: update based on downloadedSize if file check fails
+             this->resumePosition += downloadedSize;
+             std::cerr << "Warning: Could not determine file size after pause, using downloadedSize." << std::endl;
+         }
          std::cout << "Download paused by callback at position: " << this->resumePosition << std::endl;
          return false; // Paused intentionally
     }
-    // Check for other non-fatal conditions that might imply pausing or stopping
+
+    // Check for other non-fatal conditions that might imply stopping but allow resume
     if (res == CURLE_OPERATION_TIMEDOUT || res == CURLE_PARTIAL_FILE) {
+         // Update resume position similarly to pause
+         std::ifstream checkFile(this->outputPath, std::ios::binary | std::ios::ate);
+         if (checkFile.good()) {
+             this->resumePosition = checkFile.tellg();
+         } else {
+             this->resumePosition += downloadedSize;
+             std::cerr << "Warning: Could not determine file size after timeout/partial, using downloadedSize." << std::endl;
+         }
          std::cout << "Download stopped (Timeout/Partial) at position: " << this->resumePosition << std::endl;
+         // Decide if this should be treated as failure or just stopped state
+         // For now, treat as failure for the 'downloadFinished' signal
+         return false;
     }
 
     // Check for actual errors
@@ -262,11 +252,13 @@ bool Downloader::downloadFile() { // Parameters removed
             std::cerr << "Error details: " << errbuf << std::endl;
         }
         std::cerr << "HTTP response code: " << http_code << std::endl;
+        // Don't reset resumePosition on failure, allow retrying from current point
         return false; // Failure
     }
 
-    // If CURLE_OK and not paused
+    // If CURLE_OK and not paused/stopped above
     std::cout << "Download completed successfully! HTTP code: " << http_code << std::endl;
+    this->resumePosition = 0; // Reset resume position only on full success
     return true; // Success
 }
 
@@ -301,7 +293,6 @@ void Downloader::startDownload() {
              curl_easy_setopt(curlHead, CURLOPT_SSL_VERIFYHOST, 0L);
         }
 
-
         if (curl_easy_perform(curlHead) == CURLE_OK) {
             curl_easy_getinfo(curlHead, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &totalFileSize);
             std::cout << "Total file size from HEAD request: " << totalFileSize << std::endl;
@@ -316,15 +307,31 @@ void Downloader::startDownload() {
     emit downloadFinished(result);
 }
 // Slot to pause the download
-void Downloader::pauseDownload() {
-    std::cout << "Pause requested" << std::endl;
+// New method implementation
+void Downloader::requestPause() {
+    std::cout << "Pause requested directly" << std::endl;
+    // Check if running to avoid emitting pause signal unnecessarily
     if (running.load()) {
-        std::cout << "Setting paused flag to true" << std::endl;
+         std::cout << "Setting paused flag to true directly" << std::endl;
+         paused.store(true);
+         // Emit the signal immediately from the calling thread (UI thread in this case)
+         // This is safe because the connection in DownloadWindow is QueuedConnection
+         emit downloadPaused();
+    } else {
+         std::cout << "Direct pause requested but download not running." << std::endl;
+    }
+}
+
+// Existing pauseDownload slot (might be redundant now for button clicks)
+void Downloader::pauseDownload() {
+    std::cout << "Pause requested via slot" << std::endl; // Log difference
+    if (running.load()) {
+        std::cout << "Setting paused flag to true via slot" << std::endl;
         paused.store(true);
-        emit downloadPaused();
-    } 
+        emit downloadPaused(); // Signal emitted from downloader thread
+    }
     else {
-        std::cout << "Pause requested but download not running." << std::endl;
+        std::cout << "Slot pause requested but download not running." << std::endl;
     }
 }
 // Slot to resume the download

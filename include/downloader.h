@@ -16,13 +16,16 @@ public:
     // Check if download is paused
     bool isPaused() const;
 
+    // New method to request pause directly (thread-safe due to atomic flag)
+    void requestPause();
+
 public slots:
     // Slot to start the download
     void startDownload();
-    
-    // Slot to pause the download
+
+    // Slot to pause the download (can potentially be removed if not used elsewhere)
     void pauseDownload();
-    
+
     // Slot to resume the download
     void resumeDownload();
 
