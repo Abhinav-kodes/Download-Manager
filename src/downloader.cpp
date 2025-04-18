@@ -5,48 +5,70 @@
 #include <thread>
 #include <chrono>
 #include <QCoreApplication>
+#include <functional>
+
+struct CurlCallbackContext {
+    std::ofstream* fileStream = nullptr;            // Pointer to the output file stream
+    std::atomic<bool>* pausedFlag = nullptr;        // Pointer to the shared pause flag
+    std::function<void(int)>* progressFn = nullptr; // Pointer to the progress callback function object
+    curl_off_t resumeOffset = 0;                    // Value of the resume position for this transfer
+};
 
 // WriteCallback function to write data to file
 size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
-    auto* data = static_cast<std::pair<std::ofstream*, std::atomic<bool>*>*>(userp);
-    std::ofstream* out = data->first;
-    std::atomic<bool>* paused = data->second;
+        // Cast userp to the context struct pointer type
+        auto* context = static_cast<CurlCallbackContext*>(userp);
     
+     // Check required pointers are valid before dereferencing (optional but safer)
+     if (!context || !context->pausedFlag || !context->fileStream) {
+        return CURL_WRITEFUNC_PAUSE; // Or another error signal, indicates setup issue
+   }
     // Check if download is paused before writing
-    if (paused && paused->load()) {
+    if (context->pausedFlag->load()) {
         std::cout << "WriteCallback detected pause, returning CURL_WRITEFUNC_PAUSE" << std::endl;
         return CURL_WRITEFUNC_PAUSE; // This will pause the transfer
     }
     
-    out->write(static_cast<char*>(contents), size * nmemb);
+    context->fileStream->write(static_cast<char*>(contents), size * nmemb);
     return size * nmemb;
 }
 
 // Progress callback function to update the download progress
 static int progressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow,
     curl_off_t ultotal, curl_off_t ulnow) {
-    auto* data = static_cast<std::pair<std::pair<std::function<void(int)>*, curl_off_t>*, std::atomic<bool>*>*>(clientp);
-    auto* progressPair = data->first;
-    auto* progressFunc = progressPair->first;
-    curl_off_t resumePosition = progressPair->second;
-    std::atomic<bool>* paused = data->second;
+    // Cast clientp to the context struct pointer type
+    auto* context = static_cast<CurlCallbackContext*>(clientp);
+
+    // Check required pointers are valid (optional but safer)
+    if (!context || !context->pausedFlag || !context->progressFn) {
+    return 1; // Return non-zero to abort on setup issue
+    }
+
+    // Extract necessary data via the context struct
+    std::function<void(int)>* progressFunc = context->progressFn;
+    curl_off_t resumePosition = context->resumeOffset; // Use value from context
+    std::atomic<bool>* paused = context->pausedFlag;   // Use pointer from context
     
-    // Update progress, accounting for already downloaded bytes
-    if (progressFunc && dltotal > 0) {
-        // Calculate based on total file size if known
+     // Update progress, accounting for already downloaded bytes
+     if (progressFunc && dltotal > 0) {
         curl_off_t effectiveTotal = dltotal + resumePosition;
         curl_off_t effectiveNow = dlnow + resumePosition;
-        int percent = static_cast<int>((effectiveNow * 100) / effectiveTotal);
-        
-        // Keep percent within valid range
+        int percent = 0;
+        // Avoid division by zero if effectiveTotal somehow becomes zero with positive dltotal
+        if (effectiveTotal > 0) {
+           percent = static_cast<int>((static_cast<double>(effectiveNow) * 100.0) / effectiveTotal);
+        }
+
         percent = std::min(100, std::max(0, percent));
-        
-        (*progressFunc)(percent); // Update progress with the correct percentage
+
+        // Call the progress function via the pointer stored in the context
+        (*progressFunc)(percent);
     }
     
     // Check if download is paused
-    if (paused && paused->load()) {
+    if (paused->load()) { // Access paused flag via context pointer
         std::cout << "ProgressCallback detected pause" << std::endl;
+        // DO NOT call curl_easy_pause here - just return non-zero
         return 1; // Return non-zero to abort current transfer
     }
     
@@ -59,169 +81,171 @@ static int progressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow,
     return 0; // Continue download
 }
 
+// Constructor for the Downloader class
 Downloader::Downloader(const std::string& url, const std::string& outputPath, std::function<void(int)> onProgress)
-    : QObject(nullptr), // Recommended to explicitly initialize base class if default is not desired
+    : QObject(nullptr),
       url(url),
       outputPath(outputPath),
       onProgress(onProgress),
-      paused(false),         // Explicitly initialize atomics
-      running(false),        // Explicitly initialize atomics
+      paused(false),
+      running(false),
       resumePosition(0),
-      // mutex is default initialized
+      // mutex default initialized
       totalFileSize(0),
-      m_curlHandle(nullptr) // Initialize the new member
+      m_curlHandle(nullptr)
 {
-    // Constructor body remains empty or add other setup if needed
+    // Constructor body
 }
 
-// Constructor for the Downloader class
+// downloadFile function updated to use CurlCallbackContext
 bool Downloader::downloadFile(const std::string& url, const std::string& outputPath, std::function<void(int)> onProgress) {
-    CURL* curl;
+
+    CURL* curl; // Use local variable for the handle within this function scope
     CURLcode res;
 
     // Open file in appropriate mode based on resume position
     std::ios_base::openmode mode = std::ios::binary;
-    if (resumePosition > 0) {
+    if (this->resumePosition > 0) { // Use member variable
         mode |= std::ios::in | std::ios::out; // Open for update
     } else {
-        mode |= std::ios::out; // Create new file
+        mode |= std::ios::out | std::ios::trunc; // Create/Truncate new file (changed from just ios::out)
     }
 
-    std::ofstream file(outputPath, mode);
+    // Use member variable for path
+    std::ofstream file(this->outputPath, mode);
     if (!file.is_open()) {
-        std::cerr << "Failed to open file for writing: " << outputPath << std::endl;
+        std::cerr << "Failed to open file for writing: " << this->outputPath << std::endl;
         return false;
     }
 
     // Seek to resume position if needed
-    if (resumePosition > 0) {
-        file.seekp(resumePosition);
-        std::cout << "Resuming download from position: " << resumePosition << std::endl;
+    if (this->resumePosition > 0) { // Use member variable
+        file.seekp(this->resumePosition);
+        std::cout << "Resuming download from position: " << this->resumePosition << std::endl;
     }
 
-    // Get total file size first if resuming
-    if (resumePosition > 0 && totalFileSize == 0) {
-        std::ifstream checkFile(outputPath, std::ios::binary | std::ios::ate);
+    // NOTE: Getting total file size here might be better handled elsewhere or using HEAD request result
+    if (this->resumePosition > 0 && this->totalFileSize == 0) { // Use member variables
+        std::ifstream checkFile(this->outputPath, std::ios::binary | std::ios::ate);
         if (checkFile.good()) {
-            totalFileSize = std::max(totalFileSize, (curl_off_t)checkFile.tellg());
+            this->totalFileSize = std::max(this->totalFileSize, (curl_off_t)checkFile.tellg());
         }
     }
 
-    curl_global_init(CURL_GLOBAL_ALL);
-    curl = curl_easy_init();
+    curl = curl_easy_init(); // Initialize local handle
 
-    // Store in global variable for access from callbacks
-    m_curlHandle = curl;
+    this->m_curlHandle = curl; // Assign to member variable
 
     if (!curl) {
         std::cerr << "Failed to initialize cURL." << std::endl;
         file.close();
+        // NOTE: curl_global_cleanup should ideally match init call (e.g., on application exit).
+        // curl_global_cleanup(); // Assuming called elsewhere
+        this->m_curlHandle = nullptr; // Ensure member is null on failure
         return false;
     }
 
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    // --- Set Curl Options using Context Struct ---
+
+    // Use member variable for URL (or the parameter if kept)
+    curl_easy_setopt(curl, CURLOPT_URL, this->url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
 
-    // Create a pair to pass both the file and the paused flag
-    std::pair<std::ofstream*, std::atomic<bool>*> fileData(&file, &paused);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &fileData);
+    // ++ NEW: Create and populate the context struct ++
+    CurlCallbackContext callbackContext;
+    callbackContext.fileStream = &file;         // Address of local file stream
+    callbackContext.pausedFlag = &this->paused; // Address of member atomic bool
+    // Use member variable for onProgress (or parameter if kept)
+    callbackContext.progressFn = &this->onProgress;
+    callbackContext.resumeOffset = this->resumePosition; // Copy member resume position
 
-    // Set resume position if needed
-    if (resumePosition > 0) {
-        curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE, resumePosition);
+    // ++ NEW: Pass the context struct to both callbacks ++
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &callbackContext);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &callbackContext); // Use same context
+
+    // Set resume position if needed (using value from context now)
+    if (callbackContext.resumeOffset > 0) {
+        curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE, callbackContext.resumeOffset);
     }
 
-    // Create a nested pair to pass progress function + resume position + paused flag
-    std::pair<std::function<void(int)>*, curl_off_t> progressPair(&onProgress, resumePosition);
-    std::pair<std::pair<std::function<void(int)>*, curl_off_t>*, std::atomic<bool>*> progressData(&progressPair, &paused);
-
+    // Set progress function options
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progressCallback);
-    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &progressData);
+    // CURLOPT_XFERINFODATA already set above
 
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    // --- Set other options ---
+    // NOTE: Consider enabling SSL verification (1L) and providing CA info
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // SECURITY RISK!
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
-
+    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L); // Optional: for debugging
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"); // Or your app name
     curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 8192L);
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 3L);
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1000L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);
-    curl_easy_setopt(curl, CURLOPT_DNS_CACHE_TIMEOUT, 0L);
+    curl_easy_setopt(curl, CURLOPT_DNS_CACHE_TIMEOUT, 0L); // Consider removing if not needed
 
     char errbuf[CURL_ERROR_SIZE];
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errbuf);
     errbuf[0] = 0;
 
-    running.store(true);
+    // --- Perform Download ---
+    this->running.store(true); // Mark as running
 
-    std::atomic<bool> shouldAbort(false);
-    std::thread monitorThread([this, curl, &shouldAbort]() {
-        while (running.load() && !shouldAbort.load()) {
-            if (paused.load()) {
-                std::cout << "Monitor thread detected pause state, calling curl_easy_pause()" << std::endl;
-                curl_easy_pause(curl, CURLPAUSE_ALL);
-                break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            QCoreApplication::processEvents();
-        }
-    });
+    res = curl_easy_perform(curl); // BLOCKING call
 
-    res = curl_easy_perform(curl);
+    this->running.store(false); // Mark as not running anymore
 
-    shouldAbort.store(true);
-    if (monitorThread.joinable()) {
-        monitorThread.join();
-    }
-
+    // --- Process Results ---
     curl_off_t downloadedSize = 0;
     curl_easy_getinfo(curl, CURLINFO_SIZE_DOWNLOAD_T, &downloadedSize);
 
     if (downloadedSize > 0) {
-        resumePosition += downloadedSize;
-        std::cout << "Downloaded size: " << downloadedSize << ", new resume position: " << resumePosition << std::endl;
+        this->resumePosition += downloadedSize; // Update member variable
+        std::cout << "Downloaded size in this transfer: " << downloadedSize << ", new resume position: " << this->resumePosition << std::endl;
     }
 
     // Update total file size after download
     curl_off_t dlTotal = 0;
     curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &dlTotal);
     if (dlTotal > 0) {
-        totalFileSize = resumePosition + dlTotal;
+        this->totalFileSize = this->resumePosition + dlTotal; // Update member variable
     }
 
     long http_code = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
 
-    m_curlHandle = nullptr;
-
-    curl_easy_cleanup(curl);
-    curl_global_cleanup();
+    // --- Cleanup ---
+    this->m_curlHandle = nullptr; // Clear member handle pointer
+    curl_easy_cleanup(curl); // Clean up the local easy handle
     file.close();
-    running.store(false);
 
-    if (paused.load() || 
-        res == CURLE_WRITE_ERROR || 
-        res == CURLE_ABORTED_BY_CALLBACK || 
-        res == CURLE_OPERATION_TIMEDOUT || 
-        res == CURLE_PARTIAL_FILE) {
-        std::cout << "Download paused or aborted at position: " << resumePosition << std::endl;
-        return false;
+    // --- Determine Return Status ---
+    // Check if paused based on flag AND specific return codes from callbacks
+    if (this->paused.load() &&
+        (res == CURLE_WRITE_ERROR || res == CURLE_ABORTED_BY_CALLBACK)) {
+         std::cout << "Download paused by callback at position: " << this->resumePosition << std::endl;
+         return false; // Paused intentionally
+    }
+    // Check for other non-fatal conditions that might imply pausing or stopping
+    if (res == CURLE_OPERATION_TIMEDOUT || res == CURLE_PARTIAL_FILE) {
+         std::cout << "Download stopped (Timeout/Partial) at position: " << this->resumePosition << std::endl;
     }
 
+    // Check for actual errors
     if (res != CURLE_OK) {
         std::cerr << "Download failed: " << curl_easy_strerror(res) << std::endl;
         if (errbuf[0] != '\0') {
             std::cerr << "Error details: " << errbuf << std::endl;
         }
         std::cerr << "HTTP response code: " << http_code << std::endl;
-        return false;
+        return false; // Failure
     }
 
+    // If CURLE_OK and not paused
     std::cout << "Download completed successfully! HTTP code: " << http_code << std::endl;
-    return true;
+    return true; // Success
 }
 
 // Slot to start the download process
@@ -254,14 +278,10 @@ void Downloader::pauseDownload() {
     if (running.load()) {
         std::cout << "Setting paused flag to true" << std::endl;
         paused.store(true);
-        
-        // If we have a valid curl handle, try to pause it directly
-        if (m_curlHandle){
-            std::cout << "Calling curl_easy_pause() directly from pauseDownload()" << std::endl;
-            curl_easy_pause(m_curlHandle, CURLPAUSE_ALL);
-        }
-        
         emit downloadPaused();
+    } 
+    else {
+        std::cout << "Pause requested but download not running." << std::endl;
     }
 }
 // Slot to resume the download
