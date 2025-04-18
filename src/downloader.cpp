@@ -197,27 +197,27 @@ bool Downloader::downloadFile(const std::string& url, const std::string& outputP
     // --- Perform Download ---
     this->running.store(true); // Mark as running
 
-    // QString appDir = QCoreApplication::applicationDirPath();
-    //QString caCertPath = QDir(appDir).filePath("certs/cacert.pem");
-    //std::string caCertPathStd = caCertPath.toStdString();
-    std::string caCertPathStd = "E:/MY idm/Download-Manager/certs/cacert.pem";
-    std::cout << "Attempting to use CA certificate file (absolute path): "
+    QString appDir = QCoreApplication::applicationDirPath();
+    QString caCertPath = QDir(appDir).filePath("certs/cacert.pem");
+    std::string caCertPathStd = caCertPath.toStdString();
+    //std::string caCertPathStd = "E:/MY idm/Download-Manager/certs/cacert.pem";
+    std::cout << "Attempting to use CA certificate file (relative path resolved to): "
           << caCertPathStd << std::endl;
-    curl_easy_setopt(curl, CURLOPT_CAINFO, caCertPathStd.c_str());
-   /* QFileInfo caCertInfo(caCertPath);
+    QFileInfo caCertInfo(caCertPath);
     if (!caCertInfo.exists() || !caCertInfo.isFile()) {
         std::cerr << "ERROR: CA certificate file not found at expected path: "
-                << caCertPathStd << std::endl; // Changed from WARNING to ERROR
-        curl_easy_setopt(curl, CURLOPT_CAINFO, nullptr);
-        // Consider returning false here as verification will fail anyway
-        // return false;
+                << caCertPathStd << std::endl;
+        std::cerr << "Please ensure 'certs/cacert.pem' exists relative to the executable." << std::endl;
+        // Clean up before returning failure
+        file.close();
+        curl_easy_cleanup(curl);
+        this->m_curlHandle = nullptr;
+        this->running.store(false);
+        return false; // Fail the download explicitly if CA bundle is missing
     } else {
-        // *** THIS IS THE IMPORTANT DEBUG LINE ***
-        std::cout << "Attempting to use CA certificate file: " << caCertPathStd << std::endl;
         curl_easy_setopt(curl, CURLOPT_CAINFO, caCertPathStd.c_str());
-    }*/
+    }
 
-            
     res = curl_easy_perform(curl); // BLOCKING call
 
     this->running.store(false); // Mark as not running anymore
