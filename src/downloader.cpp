@@ -92,7 +92,6 @@ Downloader::Downloader(const std::string& url, const std::string& outputPath, st
       paused(false),
       running(false),
       resumePosition(0),
-      // mutex default initialized
       totalFileSize(0),
       m_curlHandle(nullptr)
 {

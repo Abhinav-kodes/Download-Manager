@@ -5,7 +5,6 @@
 #include <string>
 #include <functional>
 #include <atomic>
-#include <mutex>
 #include <curl/curl.h> // Add this include for curl_off_t
 
 class Downloader : public QObject {
@@ -44,7 +43,6 @@ private:
     std::atomic<bool> paused;
     std::atomic<bool> running;
     curl_off_t resumePosition;
-    std::mutex mutex;
     curl_off_t totalFileSize;  // Track total file size
     CURL* m_curlHandle;
     // Function to handle the file download
