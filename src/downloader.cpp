@@ -99,8 +99,8 @@ Downloader::Downloader(const std::string& url, const std::string& outputPath, st
     // Constructor body
 }
 
-// downloadFile function updated to use CurlCallbackContext
-bool Downloader::downloadFile(const std::string& url, const std::string& outputPath, std::function<void(int)> onProgress) {
+// downloadFile function updated to use member variables instead of parameters
+bool Downloader::downloadFile() { // Parameters removed
 
     CURL* curl; // Use local variable for the handle within this function scope
     CURLcode res;
@@ -110,13 +110,13 @@ bool Downloader::downloadFile(const std::string& url, const std::string& outputP
     if (this->resumePosition > 0) { // Use member variable
         mode |= std::ios::in | std::ios::out; // Open for update
     } else {
-        mode |= std::ios::out | std::ios::trunc; // Create/Truncate new file (changed from just ios::out)
+        mode |= std::ios::out | std::ios::trunc; // Create/Truncate new file
     }
 
     // Use member variable for path
-    std::ofstream file(this->outputPath, mode);
+    std::ofstream file(this->outputPath, mode); // Use this->outputPath
     if (!file.is_open()) {
-        std::cerr << "Failed to open file for writing: " << this->outputPath << std::endl;
+        std::cerr << "Failed to open file for writing: " << this->outputPath << std::endl; // Use this->outputPath
         return false;
     }
 
@@ -128,7 +128,7 @@ bool Downloader::downloadFile(const std::string& url, const std::string& outputP
 
     // NOTE: Getting total file size here might be better handled elsewhere or using HEAD request result
     if (this->resumePosition > 0 && this->totalFileSize == 0) { // Use member variables
-        std::ifstream checkFile(this->outputPath, std::ios::binary | std::ios::ate);
+        std::ifstream checkFile(this->outputPath, std::ios::binary | std::ios::ate); // Use this->outputPath
         if (checkFile.good()) {
             this->totalFileSize = std::max(this->totalFileSize, (curl_off_t)checkFile.tellg());
         }
@@ -141,24 +141,22 @@ bool Downloader::downloadFile(const std::string& url, const std::string& outputP
     if (!curl) {
         std::cerr << "Failed to initialize cURL." << std::endl;
         file.close();
-        // NOTE: curl_global_cleanup should ideally match init call (e.g., on application exit).
-        // curl_global_cleanup(); // Assuming called elsewhere
         this->m_curlHandle = nullptr; // Ensure member is null on failure
         return false;
     }
 
     // --- Set Curl Options using Context Struct ---
 
-    // Use member variable for URL (or the parameter if kept)
-    curl_easy_setopt(curl, CURLOPT_URL, this->url.c_str());
+    // Use member variable for URL
+    curl_easy_setopt(curl, CURLOPT_URL, this->url.c_str()); // Use this->url
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
 
     // ++ NEW: Create and populate the context struct ++
     CurlCallbackContext callbackContext;
     callbackContext.fileStream = &file;         // Address of local file stream
     callbackContext.pausedFlag = &this->paused; // Address of member atomic bool
-    // Use member variable for onProgress (or parameter if kept)
-    callbackContext.progressFn = &this->onProgress;
+    // Use member variable for onProgress
+    callbackContext.progressFn = &this->onProgress; // Use this->onProgress
     callbackContext.resumeOffset = this->resumePosition; // Copy member resume position
 
     // ++ NEW: Pass the context struct to both callbacks ++
@@ -278,23 +276,44 @@ void Downloader::startDownload() {
     paused.store(false);
     resumePosition = 0; // Start from beginning
     totalFileSize = 0;  // Reset total file size
-    
+
     // Optionally: Make a HEAD request to get total file size before downloading
     CURL* curlHead = curl_easy_init();
     if (curlHead) {
-        curl_easy_setopt(curlHead, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curlHead, CURLOPT_URL, url.c_str()); // Use member url
         curl_easy_setopt(curlHead, CURLOPT_NOBODY, 1L);
         curl_easy_setopt(curlHead, CURLOPT_HEADER, 1L);
         curl_easy_setopt(curlHead, CURLOPT_FOLLOWLOCATION, 1L);
-        
+
+        // Add CAINFO for HEAD request as well for consistency
+        QString appDir = QCoreApplication::applicationDirPath();
+        QString caCertPath = QDir(appDir).filePath("certs/cacert.pem");
+        // Correct type: Use std::string since toStdString() returns that
+        std::string caCertPathStd = caCertPath.toStdString();
+        QFileInfo caCertInfo(caCertPath);
+        if (caCertInfo.exists() && caCertInfo.isFile()) {
+            // Now caCertPathStd is std::string, so .c_str() is valid
+            curl_easy_setopt(curlHead, CURLOPT_CAINFO, caCertPathStd.c_str());
+            curl_easy_setopt(curlHead, CURLOPT_SSL_VERIFYPEER, 1L);
+            curl_easy_setopt(curlHead, CURLOPT_SSL_VERIFYHOST, 2L);
+        } else {
+             std::cerr << "Warning: CA cert bundle not found for HEAD request. Verification disabled for this request." << std::endl;
+             curl_easy_setopt(curlHead, CURLOPT_SSL_VERIFYPEER, 0L);
+             curl_easy_setopt(curlHead, CURLOPT_SSL_VERIFYHOST, 0L);
+        }
+
+
         if (curl_easy_perform(curlHead) == CURLE_OK) {
             curl_easy_getinfo(curlHead, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &totalFileSize);
-            std::cout << "Total file size: " << totalFileSize << std::endl;
+            std::cout << "Total file size from HEAD request: " << totalFileSize << std::endl;
+        } else {
+             std::cerr << "HEAD request failed: " << curl_easy_strerror(curl_easy_perform(curlHead)) << std::endl;
         }
         curl_easy_cleanup(curlHead);
     }
-    
-    bool result = downloadFile(url, outputPath, onProgress);
+
+    // Call downloadFile without parameters
+    bool result = downloadFile();
     emit downloadFinished(result);
 }
 // Slot to pause the download
@@ -314,15 +333,19 @@ void Downloader::resumeDownload() {
     std::cout << "Resume requested" << std::endl;
     if (!running.load() && paused.load()) {
         paused.store(false);
-        
+
         // Update progress to show current status before resuming
-        if (onProgress && totalFileSize > 0) {
-            int currentPercent = static_cast<int>((resumePosition * 100) / totalFileSize);
-            onProgress(currentPercent);
+        if (onProgress && totalFileSize > 0) { // Use member onProgress
+            int currentPercent = 0;
+            if (totalFileSize > 0) { // Avoid division by zero
+                 currentPercent = static_cast<int>((static_cast<double>(resumePosition) * 100.0) / totalFileSize);
+            }
+            onProgress(std::min(100, std::max(0, currentPercent))); // Use member onProgress
         }
-        
+
         emit downloadResumed();
-        bool result = downloadFile(url, outputPath, onProgress);
+        // Call downloadFile without parameters
+        bool result = downloadFile();
         if (!paused.load()) {
             emit downloadFinished(result);
         }

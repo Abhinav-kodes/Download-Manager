@@ -48,7 +48,7 @@ private:
     curl_off_t totalFileSize;  // Track total file size
     CURL* m_curlHandle;
     // Function to handle the file download
-    bool downloadFile(const std::string& url, const std::string& outputPath, std::function<void(int)> onProgress);
+    bool downloadFile();
 };
 
 #endif // DOWNLOADER_H
