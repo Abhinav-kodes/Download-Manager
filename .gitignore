@@ -12,3 +12,6 @@ build/
 *.so
 *.dylib
 *.user
+
+# VS Code specific
+.vscode/
