@@ -25,7 +25,5 @@ int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
     DownloadWindow window;
     window.show();
-
-    int app_result = app.exec();
     return app.exec();
-} 
+}
