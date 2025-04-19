@@ -69,7 +69,10 @@
         "iomanip": "cpp",
         "sstream": "cpp",
         "stdfloat": "cpp",
-        "qthread": "cpp"
+        "qthread": "cpp",
+        "qtimer": "cpp",
+        "qfiledialog": "cpp",
+        "qmessagebox": "cpp"
     },
     "C_Cpp.default.compilerPath": "C:/mingw64/bin/g++.exe"
 }
