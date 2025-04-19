@@ -44,7 +44,7 @@ public:
         label->setGeometry(QRect(80, 10, 63, 20));
         progressBar = new QProgressBar(DownloadWindow);
         progressBar->setObjectName("progressBar");
-        progressBar->setGeometry(QRect(70, 140, 118, 23));
+        progressBar->setGeometry(QRect(47, 140, 201, 31));
         progressBar->setValue(0);
         pauseResumeButton = new QPushButton(DownloadWindow);
         pauseResumeButton->setObjectName("pauseResumeButton");

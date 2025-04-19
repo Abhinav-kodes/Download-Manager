@@ -6,7 +6,7 @@
 #include <functional>
 #include <QDir>
 #include <string>
-#include <QFileInfo> // Added missing include for QFileInfo
+#include <QFileInfo>
 
 struct CurlCallbackContext {
     std::ofstream* fileStream = nullptr;            // Pointer to the output file stream
@@ -76,7 +76,6 @@ static int progressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow,
         // DO NOT call curl_easy_pause here - just return non-zero
         return 1; // Return non-zero to abort current transfer
     }
-
     // Let the Qt event loop process events occasionally to keep UI responsive
     static int counter = 0;
     if (++counter % 10 == 0) { // Process events every 10 callbacks
@@ -219,7 +218,6 @@ bool Downloader::downloadFile() { // Parameters removed
     // Check if paused based on flag AND specific return codes from callbacks
     if (this->paused.load() &&
         (res == CURLE_WRITE_ERROR || res == CURLE_ABORTED_BY_CALLBACK)) {
-         // Update resume position based on file size *after* pause detected
          std::ifstream checkFile(this->outputPath, std::ios::binary | std::ios::ate);
          if (checkFile.good()) {
              this->resumePosition = checkFile.tellg();
@@ -242,6 +240,7 @@ bool Downloader::downloadFile() { // Parameters removed
              this->resumePosition += downloadedSize;
              std::cerr << "Warning: Could not determine file size after timeout/partial, using downloadedSize." << std::endl;
          }
+
          std::cout << "Download stopped (Timeout/Partial) at position: " << this->resumePosition << std::endl;
          // Decide if this should be treated as failure or just stopped state
          // For now, treat as failure for the 'downloadFinished' signal
@@ -295,7 +294,6 @@ void Downloader::startDownload() {
              curl_easy_setopt(curlHead, CURLOPT_SSL_VERIFYPEER, 0L);
              curl_easy_setopt(curlHead, CURLOPT_SSL_VERIFYHOST, 0L);
         }
-
         if (curl_easy_perform(curlHead) == CURLE_OK) {
             curl_easy_getinfo(curlHead, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &totalFileSize);
             std::cout << "Total file size from HEAD request: " << totalFileSize << std::endl;
@@ -325,18 +323,6 @@ void Downloader::requestPause() {
     }
 }
 
-// Existing pauseDownload slot (might be redundant now for button clicks)
-void Downloader::pauseDownload() {
-    std::cout << "Pause requested via slot" << std::endl; // Log difference
-    if (running.load()) {
-        std::cout << "Setting paused flag to true via slot" << std::endl;
-        paused.store(true);
-        emit downloadPaused(); // Signal emitted from downloader thread
-    }
-    else {
-        std::cout << "Slot pause requested but download not running." << std::endl;
-    }
-}
 // Slot to resume the download
 void Downloader::resumeDownload() {
     std::cout << "Resume requested" << std::endl;

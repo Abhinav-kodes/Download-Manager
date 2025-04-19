@@ -20,7 +20,7 @@ private slots:
     void onDownloadComplete(bool success);
     void onDownloadPaused();
     void onDownloadResumed();
-    void updateUI(); // New slot to update UI periodically
+    void updateUI();
 
 private:
     Ui::DownloadWindow *ui;
