@@ -46,8 +46,11 @@ template <> constexpr inline auto Downloader::qt_create_metaobjectdata<qt_meta_t
         "downloadResumed",
         "totalSizeKnown",
         "size",
+        "downloadSpeedUpdated",
+        "bytesPerSecond",
         "startDownload",
-        "resumeDownload"
+        "resumeDownload",
+        "emitSpeedUpdate"
     };
 
     QtMocHelpers::UintData qt_methods {
@@ -63,10 +66,18 @@ template <> constexpr inline auto Downloader::qt_create_metaobjectdata<qt_meta_t
         QtMocHelpers::SignalData<void(qint64)>(6, 2, QMC::AccessPublic, QMetaType::Void, {{
             { QMetaType::LongLong, 7 },
         }}),
+        // Signal 'downloadSpeedUpdated'
+        QtMocHelpers::SignalData<void(qint64)>(8, 2, QMC::AccessPublic, QMetaType::Void, {{
+            { QMetaType::LongLong, 9 },
+        }}),
         // Slot 'startDownload'
-        QtMocHelpers::SlotData<void()>(8, 2, QMC::AccessPublic, QMetaType::Void),
+        QtMocHelpers::SlotData<void()>(10, 2, QMC::AccessPublic, QMetaType::Void),
         // Slot 'resumeDownload'
-        QtMocHelpers::SlotData<void()>(9, 2, QMC::AccessPublic, QMetaType::Void),
+        QtMocHelpers::SlotData<void()>(11, 2, QMC::AccessPublic, QMetaType::Void),
+        // Slot 'emitSpeedUpdate'
+        QtMocHelpers::SlotData<void(qint64)>(12, 2, QMC::AccessPublic, QMetaType::Void, {{
+            { QMetaType::LongLong, 9 },
+        }}),
     };
     QtMocHelpers::UintData qt_properties {
     };
@@ -94,8 +105,10 @@ void Downloader::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, 
         case 1: _t->downloadPaused(); break;
         case 2: _t->downloadResumed(); break;
         case 3: _t->totalSizeKnown((*reinterpret_cast< std::add_pointer_t<qint64>>(_a[1]))); break;
-        case 4: _t->startDownload(); break;
-        case 5: _t->resumeDownload(); break;
+        case 4: _t->downloadSpeedUpdated((*reinterpret_cast< std::add_pointer_t<qint64>>(_a[1]))); break;
+        case 5: _t->startDownload(); break;
+        case 6: _t->resumeDownload(); break;
+        case 7: _t->emitSpeedUpdate((*reinterpret_cast< std::add_pointer_t<qint64>>(_a[1]))); break;
         default: ;
         }
     }
@@ -107,6 +120,8 @@ void Downloader::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, 
         if (QtMocHelpers::indexOfMethod<void (Downloader::*)()>(_a, &Downloader::downloadResumed, 2))
             return;
         if (QtMocHelpers::indexOfMethod<void (Downloader::*)(qint64 )>(_a, &Downloader::totalSizeKnown, 3))
+            return;
+        if (QtMocHelpers::indexOfMethod<void (Downloader::*)(qint64 )>(_a, &Downloader::downloadSpeedUpdated, 4))
             return;
     }
 }
@@ -130,14 +145,14 @@ int Downloader::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 6)
+        if (_id < 8)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 6;
+        _id -= 8;
     }
     if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 6)
+        if (_id < 8)
             *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
-        _id -= 6;
+        _id -= 8;
     }
     return _id;
 }
@@ -164,5 +179,11 @@ void Downloader::downloadResumed()
 void Downloader::totalSizeKnown(qint64 _t1)
 {
     QMetaObject::activate<void>(this, &staticMetaObject, 3, nullptr, _t1);
+}
+
+// SIGNAL 4
+void Downloader::downloadSpeedUpdated(qint64 _t1)
+{
+    QMetaObject::activate<void>(this, &staticMetaObject, 4, nullptr, _t1);
 }
 QT_WARNING_POP

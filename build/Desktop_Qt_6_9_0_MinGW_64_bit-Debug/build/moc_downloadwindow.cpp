@@ -48,7 +48,9 @@ template <> constexpr inline auto DownloadWindow::qt_create_metaobjectdata<qt_me
         "onDownloadResumed",
         "updateUI",
         "onTotalSizeKnown",
-        "size"
+        "size",
+        "onDownloadSpeedUpdated",
+        "bytesPerSecond"
     };
 
     QtMocHelpers::UintData qt_methods {
@@ -69,6 +71,10 @@ template <> constexpr inline auto DownloadWindow::qt_create_metaobjectdata<qt_me
         // Slot 'onTotalSizeKnown'
         QtMocHelpers::SlotData<void(qint64)>(9, 2, QMC::AccessPrivate, QMetaType::Void, {{
             { QMetaType::LongLong, 10 },
+        }}),
+        // Slot 'onDownloadSpeedUpdated'
+        QtMocHelpers::SlotData<void(qint64)>(11, 2, QMC::AccessPrivate, QMetaType::Void, {{
+            { QMetaType::LongLong, 12 },
         }}),
     };
     QtMocHelpers::UintData qt_properties {
@@ -100,6 +106,7 @@ void DownloadWindow::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _
         case 4: _t->onDownloadResumed(); break;
         case 5: _t->updateUI(); break;
         case 6: _t->onTotalSizeKnown((*reinterpret_cast< std::add_pointer_t<qint64>>(_a[1]))); break;
+        case 7: _t->onDownloadSpeedUpdated((*reinterpret_cast< std::add_pointer_t<qint64>>(_a[1]))); break;
         default: ;
         }
     }
@@ -124,14 +131,14 @@ int DownloadWindow::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 7)
+        if (_id < 8)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 7;
+        _id -= 8;
     }
     if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 7)
+        if (_id < 8)
             *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
-        _id -= 7;
+        _id -= 8;
     }
     return _id;
 }

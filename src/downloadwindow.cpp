@@ -156,6 +156,7 @@ void DownloadWindow::onDownloadClicked() {
     // Reset the progress bar and size label before starting a new download.
     ui->progressBar->setValue(0);
     ui->sizeLabel->setText("Size: Determining..."); // Initial text
+    ui->speedLabel->setText("Speed: 0 B/s"); // Reset speed label
 
     // --- Cleanup existing thread and downloader first ---
     // Check if a download thread already exists from a previous download.
@@ -205,8 +206,17 @@ void DownloadWindow::onDownloadClicked() {
 
     // --- Connections for the new thread and downloader ---
     // When the thread starts, call the Downloader's startDownload method.
+    // --- Connect signals and slots ---
+    // Existing connections
     connect(downloadThread, &QThread::started, downloader, &Downloader::startDownload);
-
+    connect(downloader, &Downloader::downloadFinished, this, &DownloadWindow::onDownloadComplete);
+    connect(downloader, &Downloader::downloadPaused, this, &DownloadWindow::onDownloadPaused);
+    connect(downloader, &Downloader::downloadResumed, this, &DownloadWindow::onDownloadResumed);
+    connect(downloader, &Downloader::totalSizeKnown, this, &DownloadWindow::onTotalSizeKnown);
+    
+    // Add this new connection
+    connect(downloader, &Downloader::downloadSpeedUpdated, this, &DownloadWindow::onDownloadSpeedUpdated);
+    
     // When the thread finishes (after quit() is called and the event loop stops), schedule the Downloader object for deletion.
     connect(downloadThread, &QThread::finished, downloader, &QObject::deleteLater);
 
@@ -269,41 +279,54 @@ void DownloadWindow::onPauseResumeClicked() {
 
 // Slot called when the Downloader emits the downloadFinished signal.
 void DownloadWindow::onDownloadComplete(bool success) {
-    // Check if the 'failure' (success == false) was actually because the user paused it.
-    // Ensure the downloader pointer is still valid before checking its state.
-    if (!success && downloader && downloader->isPaused()) {
-        // If success is false BUT the downloader is in a paused state, it means the download loop
-        // was interrupted by a pause request, not a real error.
-        std::cout << "onDownloadComplete: Ignoring 'false' success because download is paused." << std::endl; // Debug output.
-        // Don't treat this as a final completion. The UI should already reflect the paused state
-        // (updated via onDownloadPaused). Keep isDownloading true.
-        return; // Exit without changing state or showing messages.
+    // Add a guard to prevent duplicate processing
+    static bool processingCompletion = false;
+    
+    if (processingCompletion) {
+        return; // Exit if we're already processing a completion
+    }
+    
+    processingCompletion = true;
+    
+    // Check if this is a pause rather than a real completion/failure
+    if (downloader && downloader->isPaused()) {
+        std::cout << "onDownloadComplete: Ignoring 'false' success because download is paused." << std::endl;
+        processingCompletion = false;
+        return;
     }
 
-    // If it's a real completion (success == true) or a genuine failure (success == false and not paused)...
-    isDownloading = false; // Set the flag indicating the download is no longer active.
-    updateButtonStates(); // Update button states (enable download, disable pause/resume).
+    // If it's a real completion or genuine failure...
+    isDownloading = false;
+    updateButtonStates();
 
-    if (success) { // If the download completed successfully...
-        // Show an information message box.
+    // Reset size label only on real completion/failure, not pause
+    if (!downloader || !downloader->isPaused()) {
+         ui->sizeLabel->setText("Size: N/A");
+         ui->speedLabel->setText("Speed: 0 B/s");
+    }
+
+    if (success) {
         QMessageBox::information(this, "Download Complete",
-                                "The file has been downloaded successfully.");
-    } else { // If the download failed (and wasn't just paused)...
-        // Show a critical error message box.
+                                 "The file has been downloaded successfully.");
+    } else if (!downloader || !downloader->isPaused()) { // Only show failure if not paused
         QMessageBox::critical(this, "Download Failed",
-                             "There was an error downloading the file.");
+                              "There was an error downloading the file.");
     }
-    // Note: At this point, the thread and downloader objects are scheduled for deletion via deleteLater
-    // because the thread's finished signal should have been emitted just before or concurrently with downloadFinished.
-    // We should null the pointers to prevent accidental use after this point, although the cleanup in
-    // onDownloadClicked handles the case where a new download starts before deleteLater executes.
-    // It might be safer to explicitly null them here too:
-    // downloader = nullptr;
-    // downloadThread = nullptr; // Be cautious if relying on thread pointer elsewhere.
+    
+    processingCompletion = false;
 }
 
 // Slot called when the Downloader emits the downloadPaused signal.
 void DownloadWindow::onDownloadPaused() {
+    // Add a guard to prevent duplicate processing
+    static bool processingPause = false;
+    
+    if (processingPause) {
+        return; // Exit if we're already processing a pause
+    }
+    
+    processingPause = true;
+    
     // Use invokeMethod to ensure UI updates run in the main GUI thread.
     QMetaObject::invokeMethod(this, [this]() {
         std::cout << "Download paused, updating UI" << std::endl; // Debug output.
@@ -318,20 +341,32 @@ void DownloadWindow::onDownloadPaused() {
         // Process events to ensure the UI updates immediately.
         QCoreApplication::processEvents();
     }, Qt::QueuedConnection); // Ensure execution in the GUI thread.
+    
+    processingPause = false;
 }
 
 // Slot called when the Downloader emits the downloadResumed signal.
 void DownloadWindow::onDownloadResumed() {
+    // Add a guard to prevent duplicate processing
+    static bool processingResume = false;
+    
+    if (processingResume) {
+        return; // Exit if we're already processing a resume
+    }
+    
+    processingResume = true;
+    
     // Use invokeMethod to ensure UI updates run in the main GUI thread.
     QMetaObject::invokeMethod(this, [this]() {
-        // Update the pause/resume button text and state.
+        std::cout << "Download resumed, updating UI" << std::endl;
+        // Update the pause/resume button to show "Pause" again
         ui->pauseResumeButton->setText("Pause");
         ui->pauseResumeButton->setEnabled(true);
-        std::cout << "Download resumed, updating UI" << std::endl; // Debug output.
-
-        // Process events to ensure the UI updates immediately.
-        QCoreApplication::processEvents();
-    }, Qt::QueuedConnection); // Ensure execution in the GUI thread.
+        isDownloading = true;
+        updateButtonStates();
+    }, Qt::QueuedConnection);
+    
+    processingResume = false;
 }
 
 // New Slot Implementation
@@ -346,5 +381,18 @@ void DownloadWindow::onTotalSizeKnown(qint64 size) {
             // Handle case where size couldn't be determined
             ui->sizeLabel->setText("Size: Unknown");
         }
+    }, Qt::QueuedConnection);
+}
+
+void DownloadWindow::onDownloadSpeedUpdated(qint64 bytesPerSecond) {
+    QMetaObject::invokeMethod(this, [this, bytesPerSecond]() {
+        QString speedStr;
+        if (bytesPerSecond < 1024)
+            speedStr = QString("%1 B/s").arg(bytesPerSecond);
+        else if (bytesPerSecond < 1024 * 1024)
+            speedStr = QString::number(bytesPerSecond / 1024.0, 'f', 2) + " KB/s";
+        else
+            speedStr = QString::number(bytesPerSecond / 1024.0 / 1024.0, 'f', 2) + " MB/s";
+        ui->speedLabel->setText("Speed: " + speedStr);
     }, Qt::QueuedConnection);
 }

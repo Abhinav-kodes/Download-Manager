@@ -7,12 +7,14 @@
 #include <QDir>
 #include <string>
 #include <QFileInfo>
+#include <chrono>  // Add this for time measurement
 
 struct CurlCallbackContext {
     std::ofstream* fileStream = nullptr;            // Pointer to the output file stream
     std::atomic<bool>* pausedFlag = nullptr;        // Pointer to the shared pause flag
     std::function<void(int)>* progressFn = nullptr; // Pointer to the progress callback function object
     curl_off_t resumeOffset = 0;                    // Value of the resume position for this transfer
+    void* downloaderInstance = nullptr;             // Pointer to the Downloader instance
 };
 
 // WriteCallback function to write data to file
@@ -46,7 +48,34 @@ static int progressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow,
 
     // Check required pointers are valid (optional but safer)
     if (!context || !context->pausedFlag || !context->progressFn) {
-    return 1; // Return non-zero to abort on setup issue
+        return 1; // Return non-zero to abort on setup issue
+    }
+
+    // Calculate download speed
+    static curl_off_t lastBytes = 0;
+    static auto lastTime = std::chrono::steady_clock::now();
+    auto currentTime = std::chrono::steady_clock::now();
+    
+    // Calculate time difference in seconds
+    double timeDiff = std::chrono::duration<double>(currentTime - lastTime).count();
+    
+    // Only update speed every 0.5 seconds to avoid UI flicker
+    if (timeDiff >= 0.5) {
+        curl_off_t bytesDiff = dlnow - lastBytes;
+        qint64 bytesPerSecond = static_cast<qint64>(bytesDiff / timeDiff);
+        
+        // Get the Downloader instance from the context
+        auto* downloader = static_cast<Downloader*>(context->downloaderInstance);
+        if (downloader) {
+            // Emit the speed signal
+            QMetaObject::invokeMethod(downloader, "emitSpeedUpdate", 
+                                     Qt::QueuedConnection,
+                                     Q_ARG(qint64, bytesPerSecond));
+        }
+        
+        // Update last values
+        lastBytes = dlnow;
+        lastTime = currentTime;
     }
 
     // Extract necessary data via the context struct
@@ -144,6 +173,7 @@ bool Downloader::downloadFile() { // Parameters removed
     callbackContext.pausedFlag = &this->paused;
     callbackContext.progressFn = &this->onProgress;
     callbackContext.resumeOffset = this->resumePosition;
+    callbackContext.downloaderInstance = this; // Add this line
 
     curl_easy_setopt(curl, CURLOPT_URL, this->url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
@@ -227,7 +257,7 @@ bool Downloader::downloadFile() { // Parameters removed
              std::cerr << "Warning: Could not determine file size after pause, using downloadedSize." << std::endl;
          }
          std::cout << "Download paused by callback at position: " << this->resumePosition << std::endl;
-         return false; // Paused intentionally
+         return false; // Paused intentionally, but don't emit signal here
     }
 
     // Check for other non-fatal conditions that might imply stopping but allow resume
@@ -321,21 +351,26 @@ void Downloader::startDownload() {
 
     // Call downloadFile without parameters
     bool result = downloadFile();
-    emit downloadFinished(result);
+    
+    // Only emit downloadFinished if we're not paused
+    // This prevents duplicate signals when pausing
+    if (!paused.load()) {
+        emit downloadFinished(result);
+    }
 }
+
 // Slot to pause the download
-// New method implementation
 void Downloader::requestPause() {
     std::cout << "Pause requested directly" << std::endl;
     // Check if running to avoid emitting pause signal unnecessarily
-    if (running.load()) {
-         std::cout << "Setting paused flag to true directly" << std::endl;
-         paused.store(true);
-         // Emit the signal immediately from the calling thread (UI thread in this case)
-         // This is safe because the connection in DownloadWindow is QueuedConnection
-         emit downloadPaused();
+    if (running.load() && !paused.load()) {  // Add check for !paused.load()
+        std::cout << "Setting paused flag to true directly" << std::endl;
+        paused.store(true);
+        // Emit the signal immediately from the calling thread (UI thread in this case)
+        // This is safe because the connection in DownloadWindow is QueuedConnection
+        emit downloadPaused();
     } else {
-         std::cout << "Direct pause requested but download not running." << std::endl;
+        std::cout << "Direct pause requested but download not running or already paused." << std::endl;
     }
 }
 
@@ -357,6 +392,9 @@ void Downloader::resumeDownload() {
         emit downloadResumed();
         // Call downloadFile without parameters
         bool result = downloadFile();
+        
+        // Only emit downloadFinished if we're not paused again
+        // This prevents duplicate signals when pausing during resume
         if (!paused.load()) {
             emit downloadFinished(result);
         }

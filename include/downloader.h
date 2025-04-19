@@ -34,6 +34,13 @@ signals:
     void downloadResumed();
     // New signal: Emitted when the total file size is known
     void totalSizeKnown(qint64 size); // Use qint64 for Qt signal/slot compatibility
+    void downloadSpeedUpdated(qint64 bytesPerSecond); // Add this line
+
+public slots:
+    // Add a slot to emit the speed update signal
+    void emitSpeedUpdate(qint64 bytesPerSecond) {
+        emit downloadSpeedUpdated(bytesPerSecond);
+    }
 
 private:
     std::string url;
