@@ -1105,7 +1105,8 @@ debug/downloadwindow.o: ../../src/downloadwindow.cpp ../../include/downloadwindo
 		C:/Qt/6.9.0/mingw_64/include/QtCore/qfileinfo.h \
 		C:/Qt/6.9.0/mingw_64/include/QtCore/qtimezone.h \
 		C:/Qt/6.9.0/mingw_64/include/QtCore/QTimer \
-		C:/Qt/6.9.0/mingw_64/include/QtCore/qtimer.h
+		C:/Qt/6.9.0/mingw_64/include/QtCore/qtimer.h \
+		C:/Qt/6.9.0/mingw_64/include/QtCore/QLocale
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o debug/downloadwindow.o ../../src/downloadwindow.cpp
 
 debug/moc_downloader.o: build/moc_downloader.cpp 

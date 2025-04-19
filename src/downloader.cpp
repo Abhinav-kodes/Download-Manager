@@ -94,7 +94,7 @@ Downloader::Downloader(const std::string& url, const std::string& outputPath, st
       paused(false),
       running(false),
       resumePosition(0),
-      totalFileSize(0),
+      totalFileSize(0), // Initialize the qint64 member
       m_curlHandle(nullptr)
 {
     // Constructor body
@@ -268,7 +268,7 @@ bool Downloader::downloadFile() { // Parameters removed
 void Downloader::startDownload() {
     paused.store(false);
     resumePosition = 0; // Start from beginning
-    totalFileSize = 0;  // Reset total file size
+    totalFileSize = -1;  // Reset total file size, use -1 to indicate unknown
 
     // Optionally: Make a HEAD request to get total file size before downloading
     CURL* curlHead = curl_easy_init();
@@ -295,13 +295,29 @@ void Downloader::startDownload() {
              curl_easy_setopt(curlHead, CURLOPT_SSL_VERIFYHOST, 0L);
         }
         if (curl_easy_perform(curlHead) == CURLE_OK) {
-            curl_easy_getinfo(curlHead, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &totalFileSize);
-            std::cout << "Total file size from HEAD request: " << totalFileSize << std::endl;
+            // Use CURLINFO_CONTENT_LENGTH_DOWNLOAD_T for large files
+            curl_off_t size_off_t = 0;
+            curl_easy_getinfo(curlHead, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &size_off_t);
+            if (size_off_t > 0) {
+                totalFileSize = static_cast<qint64>(size_off_t); // Assign to qint64 member
+                std::cout << "Total file size from HEAD request: " << totalFileSize << std::endl;
+                // Emit the signal now that the size is known
+                emit totalSizeKnown(totalFileSize);
+            } else {
+                totalFileSize = -1; // Indicate unknown size if HEAD request didn't provide it
+                emit totalSizeKnown(totalFileSize); // Emit -1 for unknown size
+            }
         } else {
              std::cerr << "HEAD request failed: " << curl_easy_strerror(curl_easy_perform(curlHead)) << std::endl;
+             totalFileSize = -1; // Indicate unknown size on failure
+             emit totalSizeKnown(totalFileSize); // Emit -1 for unknown size
         }
         curl_easy_cleanup(curlHead);
+    } else {
+        totalFileSize = -1; // Indicate unknown size if HEAD init fails
+        emit totalSizeKnown(totalFileSize); // Emit -1 for unknown size
     }
+
 
     // Call downloadFile without parameters
     bool result = downloadFile();

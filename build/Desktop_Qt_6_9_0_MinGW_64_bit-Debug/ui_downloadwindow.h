@@ -27,6 +27,7 @@ public:
     QLabel *label;
     QProgressBar *progressBar;
     QPushButton *pauseResumeButton;
+    QLabel *sizeLabel;
 
     void setupUi(QDialog *DownloadWindow)
     {
@@ -49,6 +50,9 @@ public:
         pauseResumeButton = new QPushButton(DownloadWindow);
         pauseResumeButton->setObjectName("pauseResumeButton");
         pauseResumeButton->setGeometry(QRect(280, 140, 83, 29));
+        sizeLabel = new QLabel(DownloadWindow);
+        sizeLabel->setObjectName("sizeLabel");
+        sizeLabel->setGeometry(QRect(130, 90, 63, 20));
 
         retranslateUi(DownloadWindow);
 
@@ -61,6 +65,7 @@ public:
         downloadButton->setText(QCoreApplication::translate("DownloadWindow", "download", nullptr));
         label->setText(QCoreApplication::translate("DownloadWindow", "url", nullptr));
         pauseResumeButton->setText(QCoreApplication::translate("DownloadWindow", "Pause", nullptr));
+        sizeLabel->setText(QCoreApplication::translate("DownloadWindow", "Size", nullptr));
     } // retranslateUi
 
 };

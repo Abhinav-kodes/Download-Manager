@@ -6,6 +6,7 @@
 #include <QThread> // Includes the Qt class for managing threads.
 #include <QTimer> // Includes the Qt class for creating timers that fire signals at regular intervals.
 #include <iostream> // Includes the standard C++ library for input/output streams (used here for debug messages with std::cout/cerr).
+#include <QLocale> // Include for formatting size
 
 // Constructor for the DownloadWindow class.
 DownloadWindow::DownloadWindow(QWidget *parent) // Takes an optional parent widget, standard for Qt widgets.
@@ -152,6 +153,10 @@ void DownloadWindow::onDownloadClicked() {
     // Reset the progress bar to 0 before starting a new download.
     ui->progressBar->setValue(0);
 
+    // Reset the progress bar and size label before starting a new download.
+    ui->progressBar->setValue(0);
+    ui->sizeLabel->setText("Size: Determining..."); // Initial text
+
     // --- Cleanup existing thread and downloader first ---
     // Check if a download thread already exists from a previous download.
     if (downloadThread) {
@@ -216,6 +221,10 @@ void DownloadWindow::onDownloadClicked() {
     connect(downloader, &Downloader::downloadPaused, this, &DownloadWindow::onDownloadPaused, Qt::QueuedConnection);
     // When download is resumed, call onDownloadResumed.
     connect(downloader, &Downloader::downloadResumed, this, &DownloadWindow::onDownloadResumed, Qt::QueuedConnection);
+
+    // *** New Connection ***
+    connect(downloader, &Downloader::totalSizeKnown, this, &DownloadWindow::onTotalSizeKnown);
+
 
     // --- Start Download ---
     isDownloading = true; // Set the flag indicating a download is active.
@@ -323,4 +332,19 @@ void DownloadWindow::onDownloadResumed() {
         // Process events to ensure the UI updates immediately.
         QCoreApplication::processEvents();
     }, Qt::QueuedConnection); // Ensure execution in the GUI thread.
+}
+
+// New Slot Implementation
+void DownloadWindow::onTotalSizeKnown(qint64 size) {
+    // Use invokeMethod to ensure UI updates run in the main GUI thread.
+    QMetaObject::invokeMethod(this, [this, size]() {
+        if (size >= 0) {
+            // Use QLocale to format the size nicely (e.g., KB, MB, GB)
+            QString formattedSize = QLocale().formattedDataSize(size);
+            ui->sizeLabel->setText(QString("Size: %1").arg(formattedSize));
+        } else {
+            // Handle case where size couldn't be determined
+            ui->sizeLabel->setText("Size: Unknown");
+        }
+    }, Qt::QueuedConnection);
 }
