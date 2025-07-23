@@ -20,7 +20,9 @@ private slots:
     void onDownloadComplete(bool success);
     void onDownloadPaused();
     void onDownloadResumed();
-    void updateUI(); // New slot to update UI periodically
+    void updateUI();
+    void onTotalSizeKnown(qint64 size);
+    void onDownloadSpeedUpdated(qint64 bytesPerSecond); // Add this line
 
 private:
     Ui::DownloadWindow *ui;
